@@ -43,19 +43,43 @@ public class ItemArtpeTrain extends Item {
                              float hitX, float hitY, float hitZ) {
         if (world.isRemote) return false;
 
+        boolean success = performSpawn(world, itemStack, x, y, z, player, null);
+        if (success && !player.capabilities.isCreativeMode) {
+            --itemStack.stackSize;
+        }
+        return success;
+    }
+    
+    public static void spawnFormation(World world, ItemStack stack, int x, int y, int z, EntityPlayer player) {
+        if (world.isRemote) return;
+        ItemArtpeTrain inst = (ItemArtpeTrain) stack.getItem();
+        boolean success = inst.performSpawn(world, stack, x, y, z, player, null);
+        if (success && !player.capabilities.isCreativeMode) {
+            --stack.stackSize;
+        }
+    }
+    
+    public static void spawnFormation(World world, ItemStack stack, int x, int y, int z, float spawnYaw) {
+        if (world.isRemote) return;
+        ItemArtpeTrain inst = (ItemArtpeTrain) stack.getItem();
+        inst.performSpawn(world, stack, x, y, z, null, spawnYaw);
+    }
+    
+    private boolean performSpawn(World world, ItemStack itemStack, int x, int y, int z,
+                                 EntityPlayer player, Float explicitYaw) {
         RailMap rm0 = findRailMap(world, player, x, y, z);
         if (rm0 == null) return false;
 
         List<TrainSet> trainSets = getFormationFromItem(itemStack);
         if (trainSets.isEmpty()) return false;
 
-        int startIndex = rm0.getNearlestPoint(SEARCH_SPLIT,
-                (double) x + 0.5, (double) z + 0.5);
+        int startIndex = rm0.getNearlestPoint(SEARCH_SPLIT, (double) x + 0.5, (double) z + 0.5);
         double startDist = rm0.getLength() * ((double) startIndex / SEARCH_SPLIT);
 
         float railYawAtStart = MathHelper.wrapAngleTo180_float(
                 rm0.getRailRotation(SEARCH_SPLIT, startIndex));
-        float fixedYaw = EntityBogie.fixBogieYaw(-player.rotationYaw, railYawAtStart);
+        float baseYaw = explicitYaw != null ? explicitYaw : -player.rotationYaw;
+        float fixedYaw = EntityBogie.fixBogieYaw(baseYaw, railYawAtStart);
         boolean isReverse = Math.abs(
                 MathHelper.wrapAngleTo180_float(fixedYaw - railYawAtStart)) > 90.0F;
         double dirMul = isReverse ? -1.0D : 1.0D;
@@ -136,9 +160,6 @@ public class ItemArtpeTrain extends Item {
         });
         formation.sendPacket();
 
-        if (!player.capabilities.isCreativeMode) {
-            --itemStack.stackSize;
-        }
         return true;
     }
 
@@ -284,7 +305,7 @@ public class ItemArtpeTrain extends Item {
         return new EntityTrain(world, "");
     }
 
-    private List<TrainSet> getFormationFromItem(ItemStack stack) {
+    public static List<TrainSet> getFormationFromItem(ItemStack stack) {
         List<TrainSet> list = new ArrayList<TrainSet>();
         if (!stack.hasTagCompound()) return list;
         NBTTagList tagList = stack.getTagCompound().getTagList("formations", 10);
