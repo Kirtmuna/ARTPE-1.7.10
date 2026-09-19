@@ -1,66 +1,153 @@
-buildscript {
-    repositories {
-        mavenCentral()
-        maven {
-            name = "forge"
-            url = "https://maven.minecraftforge.net/"
-        }
-    }
-    dependencies {
-        
-        classpath('com.anatawa12.forge:ForgeGradle:1.2-1.1.+') {
-            changing = true
+plugins {
+    id 'java-library'
+    id 'com.gtnewhorizons.retrofuturagradle' version '2.0.3'
+    id 'idea'
+    id 'eclipse'
+}
+
+// Mod properties from gradle.properties
+version = '1.0.0'
+group = project.modGroup
+base.archivesName.set('ARTPE-1.7.10')
+
+eclipse {
+    classpath {
+        file {
+            whenMerged {
+                entries.each { entry ->
+                    if (entry.kind == 'src' && entry.path.startsWith('build/')) {
+                        entry.entryAttributes['ignore_optional_problems'] = 'true'
+                    }
+                }
+            }
         }
     }
 }
 
-apply plugin: 'forge'
-apply plugin: 'maven-publish'
-
-version = "1.0.0"
-group = "jp.apple.artpe"
-archivesBaseName = "ARTPE-forge1.7.10"
-
-sourceCompatibility = "1.8"
-targetCompatibility = "1.8"
+def rtmCoordinate = (findProperty('rtmCoordinate') ?: 'com.github.Kai-Z-JP:KaizPatchX:v1.10.1:dev').toString().trim()
 
 minecraft {
-    version = "1.7.10-10.13.4.1614-1.7.10"
-    runDir = "eclipse"
+    mcVersion = '1.7.10'
+
+    // Inject properties into mcmod.info
+    injectedTags = [
+            'VERSION': project.version,
+            'MODID': project.modId,
+            'MODNAME': project.modName
+    ]
+
+    // Defense-in-depth for Log4Shell-class issues.
+    extraRunJvmArguments.add('-Dlog4j2.formatMsgNoLookups=true')
+    extraRunJvmArguments.add('-Dlog4j2.enableJndiLookup=false')
 }
 
+repositories {
+    mavenCentral()
+    maven {
+        name = 'GTNH Maven'
+        url = 'https://nexus.gtnewhorizons.com/repository/public/'
+    }
+    maven {
+        name = 'JitPack'
+        url = 'https://jitpack.io'
+    }
+    flatDir { dirs 'libs' }
+}
 
-[compileJava, compileTestJava]*.options*.encoding = 'UTF-8'
+configurations.configureEach {
+    resolutionStrategy {
+        // Security baseline for transitive legacy dependencies.
+        force 'com.google.code.gson:gson:2.14.0'
+        force 'org.apache.commons:commons-compress:1.28.0'
+        force 'commons-io:commons-io:2.22.0'
+        force 'org.yaml:snakeyaml:2.6'
+        force 'junit:junit:4.13.2'
+
+        // Log4j security baseline
+        force 'org.apache.logging.log4j:log4j-core:2.26.1'
+        force 'org.apache.logging.log4j:log4j-api:2.26.1'
+        force 'org.apache.logging.log4j:log4j-slf4j-impl:2.26.1'
+
+        force 'org.apache.httpcomponents:httpclient:4.5.14'
+        force 'org.apache.httpcomponents:httpcore:4.4.16'
+    }
+}
 
 dependencies {
-    
-    compile fileTree(dir: 'libs', include: ['*.jar'])
+    constraints {
+        implementation('com.google.code.gson:gson:2.14.0') {
+            because 'Fixes vulnerable Gson versions before 2.8.9 and aligns all transitive Gson artifacts.'
+        }
+        implementation('org.apache.commons:commons-compress:1.28.0') {
+            because 'Fixes XmlStreamReader uncontrolled resource consumption issue (CVE in versions < 2.14.0).'
+        }
+        implementation('commons-io:commons-io:2.22.0') {
+            because 'Fixes XmlStreamReader uncontrolled resource consumption issue (CVE in versions < 2.14.0).'
+        }
+    }
+    implementation fileTree(dir: 'libs', include: ['*.jar'])
+
+    // RTM compatibility target (KaizPatchX), resolved from JitPack
+    compileOnly(rfg.deobf(rtmCoordinate))
 }
 
-processResources {
-    inputs.property "version", project.version
-    inputs.property "mcversion", project.minecraft.version
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+}
 
-    from(sourceSets.main.resources.srcDirs) {
-        include 'mcmod.info'
-        expand 'version': project.version, 'mcversion': project.minecraft.version
-    }
+tasks.withType(JavaExec) {
+    systemProperty 'file.encoding', 'UTF-8'
+}
 
-    from(sourceSets.main.resources.srcDirs) {
-        exclude 'mcmod.info'
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(8)
     }
+}
+
+tasks.named('jar') {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    archiveClassifier.set('')
+    exclude 'module-info.class'
+    exclude 'META-INF/versions/'
 }
 
 jar {
     manifest {
         attributes([
-            "Specification-Title": "ARTPE",
-            "Specification-Vendor": "apple",
-            "Specification-Version": "1",
-            "Implementation-Title": project.name,
-            "Implementation-Version": "${version}",
-            "Implementation-Vendor" :"apple",
-            "Implementation-Timestamp": new Date().format("yyyy-MM-dd'T'HH:mm:ssZ")
+                'Specification-Title': project.modName,
+                'Specification-Vendor': 'Applepie',
+                'Specification-Version': '1',
+                'Implementation-Title': project.modId,
+                'Implementation-Version': project.version,
+                'Implementation-Vendor': 'Applepie',
+                'Implementation-Timestamp': new Date().format("yyyy-MM-dd'T'HH:mm:ssZ")
         ])
     }
+}
+
+processResources {
+    def mod_version = project.version
+    def mod_id = project.modId
+    def mod_name = project.modName
+    def mc_version = '1.7.10'
+
+    inputs.property 'modVersion', mod_version
+    inputs.property 'minecraftVersion', mc_version
+    inputs.property 'modId', mod_id
+    inputs.property 'modName', mod_name
+
+    filesMatching('mcmod.info') {
+        expand(
+                'modVersion': mod_version,
+                'minecraftVersion': mc_version,
+                'modId': mod_id,
+                'modName': mod_name
+        )
+    }
+}
+
+tasks.withType(Javadoc) {
+    options.encoding = 'UTF-8'
+    options.charSet = 'UTF-8'
 }
